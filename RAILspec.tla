@@ -2,6 +2,8 @@
 EXTENDS Naturals, TLC, FiniteSets, Sequences
 CONSTANT S, A, C, K
 
+SOMELEFT(client_states) == \E xy \in (DOMAIN client_states) : Len(client_states[xy]) > 0
+
 (*
 
 --fair algorithm RAIL {
@@ -58,10 +60,8 @@ CONSTANT S, A, C, K
     
     process(s \in servers)
     variable aa; {
-        start:
-        print <<"start">>;
         w0:
-        while(sr[self] = 1) {
+        while(ServerQueue[self] # {} \/ SOMELEFT(logs)) {
             await ServerQueue[self] # {};
             with (line \in ServerQueue[self]){
                 ServerQueue[self] := ServerQueue[self] \ { line };
@@ -119,7 +119,7 @@ Init == (* Global variables *)
         (* Process s *)
         /\ aa = [self \in servers |-> defaultInitValue]
         /\ pc = [self \in ProcSet |-> CASE self \in clients -> "wstart"
-                                        [] self \in servers -> "start"]
+                                        [] self \in servers -> "w0"]
 
 wstart(self) == /\ pc[self] = "wstart"
                 /\ IF Len(logs[self]) # 0
@@ -155,16 +155,8 @@ sendloop(self) == /\ pc[self] = "sendloop"
 
 c(self) == wstart(self) \/ winit(self) \/ sendloop(self)
 
-start(self) == /\ pc[self] = "start"
-               /\ PrintT(<<"start">>)
-               /\ pc' = [pc EXCEPT ![self] = "w0"]
-               /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                               logs, ServerState, ServerQueue, sr, 
-                               AggregatorState, AggregatorQueue, ClientTime, 
-                               sentto, aa >>
-
 w0(self) == /\ pc[self] = "w0"
-            /\ IF sr[self] = 1
+            /\ IF ServerQueue[self] # {} \/ SOMELEFT(logs)
                   THEN /\ ServerQueue[self] # {}
                        /\ \E line \in ServerQueue[self]:
                             /\ ServerQueue' = [ServerQueue EXCEPT ![self] = ServerQueue[self] \ { line }]
@@ -176,7 +168,7 @@ w0(self) == /\ pc[self] = "w0"
                             sr, AggregatorState, AggregatorQueue, ClientTime, 
                             sentto, aa >>
 
-s(self) == start(self) \/ w0(self)
+s(self) == w0(self)
 
 Next == (\E self \in clients: c(self))
            \/ (\E self \in servers: s(self))
@@ -192,6 +184,6 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 22 18:05:41 BST 2016 by george
+\* Last modified Sat Oct 22 18:27:03 BST 2016 by george
 \* Last modified Sat Oct 22 18:00:44 BST 2016 by benl
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
