@@ -2,6 +2,7 @@
 EXTENDS Naturals, TLC, FiniteSets, Sequences
 CONSTANT S, A, C, K
 
+(* Check if there is any client log left to send *)
 SOMELEFT(client_states) == \E xy \in (DOMAIN client_states) : Len(client_states[xy]) > 0
 
 (*
@@ -184,6 +185,6 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 22 18:27:03 BST 2016 by george
+\* Last modified Sat Oct 22 18:28:31 BST 2016 by george
 \* Last modified Sat Oct 22 18:00:44 BST 2016 by benl
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
