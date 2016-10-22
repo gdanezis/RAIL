@@ -8,8 +8,8 @@ CONSTANT S, A, C, K
   variables 
 
     servers = 1..S;
-    aggregators = 1..A;
-    clients = 1..C;
+    aggregators = S+1..A+S;
+    clients = A+S+1..A+S+C;
     
     subs = SUBSET servers;
     
@@ -20,6 +20,7 @@ CONSTANT S, A, C, K
  
     ServerState = [s \in servers |-> {}];
     ServerQueue = [s \in servers |-> {}];
+    sr = [s \in servers |-> 1];
     
     AggregatorState = [s \in aggregators |-> {}];
     AggregatorQueue = [s \in servers |-> {}];
@@ -28,7 +29,7 @@ CONSTANT S, A, C, K
     
     
     macro send(chan, msgs){
-         chan := chan \cup { msgs };
+         chan := chan \cup msgs;
     }
     
     
@@ -55,48 +56,68 @@ CONSTANT S, A, C, K
         };                 
     };
     
-    process(s \in servers){
-        
-        start: await ServerQueue[self] # {};
-        with (line \in ServerQueue[self]){
-            ServerQueue[self] := ServerQueue[self] \ { line };
-            ServerState[self] := ServerState[self] \cup { line };
+    process(s \in servers)
+    variable aa; {
+        start:
+        print <<"start">>;
+        w0:
+        while(sr[self] = 1) {
+            await ServerQueue[self] # {};
+            with (line \in ServerQueue[self]){
+                ServerQueue[self] := ServerQueue[self] \ { line };
+                ServerState[self] := ServerState[self] \cup { line };
+                (*aa := {i \in aggregators};
+                with (a \in aa) {
+                    aa := aa \ { a };
+                    AggregatorQueue[a] := AggregatorQueue[a] \cup { line };
+                }*)
+            }
         }
-    
     }
     
-    
-    
+    (*process(a \in aggregators) {
+        start:
+        while(1 = 1) {
+            with (m \in AggregatorQueue[self]) {
+                AggregatorQueue[self] := AggregatorQueue[self] \ { m };       
+                AggregatorState[self] := AggregatorState[self] \cup { m };
+            }
+        }
+    }*) 
 };
 
 *)
 
 
 \* ================ BEGIN TRANSLATION ================ *\
+CONSTANT defaultInitValue
 VARIABLES servers, aggregators, clients, subs, Quorums, logs, ServerState, 
-          ServerQueue, AggregatorState, AggregatorQueue, ClientTime, pc, 
-          sentto
+          ServerQueue, sr, AggregatorState, AggregatorQueue, ClientTime, pc, 
+          sentto, aa
 
 vars == << servers, aggregators, clients, subs, Quorums, logs, ServerState, 
-           ServerQueue, AggregatorState, AggregatorQueue, ClientTime, pc, 
-           sentto >>
+           ServerQueue, sr, AggregatorState, AggregatorQueue, ClientTime, pc, 
+           sentto, aa >>
 
 ProcSet == (clients) \cup (servers)
 
 Init == (* Global variables *)
         /\ servers = 1..S
-        /\ aggregators = 1..A
-        /\ clients = 1..C
+        /\ aggregators = S+1..A+S
+        /\ clients = A+S+1..A+S+C
         /\ subs = SUBSET servers
         /\ Quorums = {x \in subs : Cardinality(x) = K }
         /\ logs = [c \in clients |-> <<"Line0", "Line1", "Line2">> ]
         /\ ServerState = [s \in servers |-> {}]
         /\ ServerQueue = [s \in servers |-> {}]
+        /\ sr = [s \in servers |-> 1]
         /\ AggregatorState = [s \in aggregators |-> {}]
         /\ AggregatorQueue = [s \in servers |-> {}]
         /\ ClientTime = [s \in clients |-> 0]
         (* Process c *)
         /\ sentto = [self \in clients |-> {}]
+        (* Process s *)
+        /\ aa = [self \in servers |-> defaultInitValue]
         /\ pc = [self \in ProcSet |-> CASE self \in clients -> "wstart"
                                         [] self \in servers -> "start"]
 
@@ -105,22 +126,23 @@ wstart(self) == /\ pc[self] = "wstart"
                       THEN /\ pc' = [pc EXCEPT ![self] = "winit"]
                       ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
                 /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                                logs, ServerState, ServerQueue, 
+                                logs, ServerState, ServerQueue, sr, 
                                 AggregatorState, AggregatorQueue, ClientTime, 
-                                sentto >>
+                                sentto, aa >>
 
 winit(self) == /\ pc[self] = "winit"
                /\ \E targets \in Quorums:
                     sentto' = [sentto EXCEPT ![self] = targets]
                /\ pc' = [pc EXCEPT ![self] = "sendloop"]
                /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                               logs, ServerState, ServerQueue, AggregatorState, 
-                               AggregatorQueue, ClientTime >>
+                               logs, ServerState, ServerQueue, sr, 
+                               AggregatorState, AggregatorQueue, ClientTime, 
+                               aa >>
 
 sendloop(self) == /\ pc[self] = "sendloop"
                   /\ IF sentto[self] # {}
                         THEN /\ \E chan \in sentto[self]:
-                                  /\ ServerQueue' = [ServerQueue EXCEPT ![chan] = (ServerQueue[chan]) \cup { ({ Head(logs[self]) }) }]
+                                  /\ ServerQueue' = [ServerQueue EXCEPT ![chan] = (ServerQueue[chan]) \cup ({ Head(logs[self]) })]
                                   /\ sentto' = [sentto EXCEPT ![self] = sentto[self] \ {chan}]
                              /\ pc' = [pc EXCEPT ![self] = "sendloop"]
                              /\ logs' = logs
@@ -128,22 +150,33 @@ sendloop(self) == /\ pc[self] = "sendloop"
                              /\ pc' = [pc EXCEPT ![self] = "wstart"]
                              /\ UNCHANGED << ServerQueue, sentto >>
                   /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                                  ServerState, AggregatorState, 
-                                  AggregatorQueue, ClientTime >>
+                                  ServerState, sr, AggregatorState, 
+                                  AggregatorQueue, ClientTime, aa >>
 
 c(self) == wstart(self) \/ winit(self) \/ sendloop(self)
 
 start(self) == /\ pc[self] = "start"
-               /\ ServerQueue[self] # {}
-               /\ \E line \in ServerQueue[self]:
-                    /\ ServerQueue' = [ServerQueue EXCEPT ![self] = ServerQueue[self] \ { line }]
-                    /\ ServerState' = [ServerState EXCEPT ![self] = ServerState[self] \cup { line }]
-               /\ pc' = [pc EXCEPT ![self] = "Done"]
+               /\ PrintT(<<"start">>)
+               /\ pc' = [pc EXCEPT ![self] = "w0"]
                /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                               logs, AggregatorState, AggregatorQueue, 
-                               ClientTime, sentto >>
+                               logs, ServerState, ServerQueue, sr, 
+                               AggregatorState, AggregatorQueue, ClientTime, 
+                               sentto, aa >>
 
-s(self) == start(self)
+w0(self) == /\ pc[self] = "w0"
+            /\ IF sr[self] = 1
+                  THEN /\ ServerQueue[self] # {}
+                       /\ \E line \in ServerQueue[self]:
+                            /\ ServerQueue' = [ServerQueue EXCEPT ![self] = ServerQueue[self] \ { line }]
+                            /\ ServerState' = [ServerState EXCEPT ![self] = ServerState[self] \cup { line }]
+                       /\ pc' = [pc EXCEPT ![self] = "w0"]
+                  ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                       /\ UNCHANGED << ServerState, ServerQueue >>
+            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, logs, 
+                            sr, AggregatorState, AggregatorQueue, ClientTime, 
+                            sentto, aa >>
+
+s(self) == start(self) \/ w0(self)
 
 Next == (\E self \in clients: c(self))
            \/ (\E self \in servers: s(self))
@@ -159,6 +192,15 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
+\* Last modified Sat Oct 22 18:00:44 BST 2016 by benl
+<<<<<<< Updated upstream
 \* Last modified Sat Oct 22 17:42:07 BST 2016 by george
-\* Last modified Sat Oct 22 16:30:04 BST 2016 by benl
+=======
+\* Last modified Sat Oct 22 17:54:56 BST 2016 by benl
+<<<<<<< HEAD
+\* Last modified Sat Oct 22 15:52:04 BST 2016 by george
+=======
+\* Last modified Sat Oct 22 16:12:21 BST 2016 by george
+>>>>>>> refs/remotes/origin/master
+>>>>>>> Stashed changes
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
