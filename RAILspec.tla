@@ -1,6 +1,6 @@
 ------------------------------ MODULE RAILspec ------------------------------
-EXTENDS Naturals, TLC
-CONSTANT S, A, C 
+EXTENDS Naturals, TLC, FiniteSets, Sequences
+CONSTANT S, A, C, K
 
 (*
 
@@ -11,8 +11,12 @@ CONSTANT S, A, C
     aggregators = 1..A;
     clients = 1..C;
     
+    subs = SUBSET servers;
+    
+    Quorums = {x \in subs : Cardinality(x) = K };
+    
     \*logs = [c \in clients |-> {"Line0", "Line1", "Line2", "Line3" }];
-    logs = [c \in clients |-> {"Line0"}];
+    logs = [c \in clients |-> <<"Line0", "Line1", "Line2">> ];
  
     ServerState = [s \in servers |-> {}];
     ServerQueue = [s \in servers |-> {}];
@@ -24,20 +28,30 @@ CONSTANT S, A, C
     
     
     macro send(chan, msgs){
-         chan := chan \cup {msgs};
+         chan := chan \cup { msgs };
     }
+    
+    
+    process(c \in clients) 
+        variable sentto = {};
+        {      
 
-    process(c \in clients){
         wstart:
-        while (logs[self] # {}){
-            sendline: 
-            with (msg \in logs[self])
-            {
-                logs[self] := logs[self] \ { msg };
-                with(s \in servers){
-                    send(ServerQueue[s], { msg });
-                };
-            };   
+        while (Len(logs[self]) # 0){
+        
+            winit: with (targets \in Quorums){
+                sentto := targets;
+            };
+        
+            sendloop:
+            while(sentto # {}){
+                with(chan \in sentto){
+                    send( ServerQueue[chan] , { Head(logs[self]) });
+                    sentto := sentto \ {chan}
+                };                
+            };
+        
+            logs[self] := Tail(logs[self]);
         };                 
     };
     
@@ -48,8 +62,6 @@ CONSTANT S, A, C
             ServerQueue[self] := ServerQueue[self] \ { line };
             ServerState[self] := ServerState[self] \cup { line };
         }
-        
-    
     
     }
     
@@ -61,11 +73,13 @@ CONSTANT S, A, C
 
 
 \* ================ BEGIN TRANSLATION ================ *\
-VARIABLES servers, aggregators, clients, logs, ServerState, ServerQueue, 
-          AggregatorState, AggregatorQueue, ClientTime, pc
+VARIABLES servers, aggregators, clients, subs, Quorums, logs, ServerState, 
+          ServerQueue, AggregatorState, AggregatorQueue, ClientTime, pc, 
+          sentto
 
-vars == << servers, aggregators, clients, logs, ServerState, ServerQueue, 
-           AggregatorState, AggregatorQueue, ClientTime, pc >>
+vars == << servers, aggregators, clients, subs, Quorums, logs, ServerState, 
+           ServerQueue, AggregatorState, AggregatorQueue, ClientTime, pc, 
+           sentto >>
 
 ProcSet == (clients) \cup (servers)
 
@@ -73,33 +87,51 @@ Init == (* Global variables *)
         /\ servers = 1..S
         /\ aggregators = 1..A
         /\ clients = 1..C
-        /\ logs = [c \in clients |-> {"Line0"}]
+        /\ subs = SUBSET servers
+        /\ Quorums = {x \in subs : Cardinality(x) = K }
+        /\ logs = [c \in clients |-> <<"Line0", "Line1", "Line2">> ]
         /\ ServerState = [s \in servers |-> {}]
         /\ ServerQueue = [s \in servers |-> {}]
         /\ AggregatorState = [s \in aggregators |-> {}]
         /\ AggregatorQueue = [s \in servers |-> {}]
         /\ ClientTime = [s \in clients |-> 0]
+        (* Process c *)
+        /\ sentto = [self \in clients |-> {}]
         /\ pc = [self \in ProcSet |-> CASE self \in clients -> "wstart"
                                         [] self \in servers -> "start"]
 
 wstart(self) == /\ pc[self] = "wstart"
-                /\ IF logs[self] # {}
-                      THEN /\ pc' = [pc EXCEPT ![self] = "sendline"]
+                /\ IF Len(logs[self]) # 0
+                      THEN /\ pc' = [pc EXCEPT ![self] = "winit"]
                       ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-                /\ UNCHANGED << servers, aggregators, clients, logs, 
-                                ServerState, ServerQueue, AggregatorState, 
-                                AggregatorQueue, ClientTime >>
+                /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                                logs, ServerState, ServerQueue, 
+                                AggregatorState, AggregatorQueue, ClientTime, 
+                                sentto >>
 
-sendline(self) == /\ pc[self] = "sendline"
-                  /\ \E msg \in logs[self]:
-                       /\ logs' = [logs EXCEPT ![self] = logs[self] \ { msg }]
-                       /\ \E s \in servers:
-                            ServerQueue' = [ServerQueue EXCEPT ![s] = (ServerQueue[s]) \cup {({ msg })}]
-                  /\ pc' = [pc EXCEPT ![self] = "wstart"]
-                  /\ UNCHANGED << servers, aggregators, clients, ServerState, 
-                                  AggregatorState, AggregatorQueue, ClientTime >>
+winit(self) == /\ pc[self] = "winit"
+               /\ \E targets \in Quorums:
+                    sentto' = [sentto EXCEPT ![self] = targets]
+               /\ pc' = [pc EXCEPT ![self] = "sendloop"]
+               /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                               logs, ServerState, ServerQueue, AggregatorState, 
+                               AggregatorQueue, ClientTime >>
 
-c(self) == wstart(self) \/ sendline(self)
+sendloop(self) == /\ pc[self] = "sendloop"
+                  /\ IF sentto[self] # {}
+                        THEN /\ \E chan \in sentto[self]:
+                                  /\ ServerQueue' = [ServerQueue EXCEPT ![chan] = (ServerQueue[chan]) \cup { ({ Head(logs[self]) }) }]
+                                  /\ sentto' = [sentto EXCEPT ![self] = sentto[self] \ {chan}]
+                             /\ pc' = [pc EXCEPT ![self] = "sendloop"]
+                             /\ logs' = logs
+                        ELSE /\ logs' = [logs EXCEPT ![self] = Tail(logs[self])]
+                             /\ pc' = [pc EXCEPT ![self] = "wstart"]
+                             /\ UNCHANGED << ServerQueue, sentto >>
+                  /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                                  ServerState, AggregatorState, 
+                                  AggregatorQueue, ClientTime >>
+
+c(self) == wstart(self) \/ winit(self) \/ sendloop(self)
 
 start(self) == /\ pc[self] = "start"
                /\ ServerQueue[self] # {}
@@ -107,8 +139,9 @@ start(self) == /\ pc[self] = "start"
                     /\ ServerQueue' = [ServerQueue EXCEPT ![self] = ServerQueue[self] \ { line }]
                     /\ ServerState' = [ServerState EXCEPT ![self] = ServerState[self] \cup { line }]
                /\ pc' = [pc EXCEPT ![self] = "Done"]
-               /\ UNCHANGED << servers, aggregators, clients, logs, 
-                               AggregatorState, AggregatorQueue, ClientTime >>
+               /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                               logs, AggregatorState, AggregatorQueue, 
+                               ClientTime, sentto >>
 
 s(self) == start(self)
 
@@ -126,10 +159,6 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
+\* Last modified Sat Oct 22 17:42:07 BST 2016 by george
 \* Last modified Sat Oct 22 16:30:04 BST 2016 by benl
-<<<<<<< HEAD
-\* Last modified Sat Oct 22 15:52:04 BST 2016 by george
-=======
-\* Last modified Sat Oct 22 16:12:21 BST 2016 by george
->>>>>>> refs/remotes/origin/master
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
