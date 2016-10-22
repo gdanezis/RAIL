@@ -38,13 +38,13 @@ CONSTANT S, A, C
             {
                 logs := logs \ { msg };
                 with(s \in servers){
-                    send(ServerQueue[s], msg);
+                    send(ServerQueue[s], { msg });
                 };
                 print msg;
                 print logs;
             };   
         };
-                
+                 
 
     };
     
@@ -96,7 +96,7 @@ sendline(self) == /\ pc[self] = "sendline"
                   /\ \E msg \in logs:
                        /\ logs' = logs \ { msg }
                        /\ \E s \in servers:
-                            ServerQueue' = [ServerQueue EXCEPT ![s] = (ServerQueue[s]) \cup msg]
+                            ServerQueue' = [ServerQueue EXCEPT ![s] = (ServerQueue[s]) \cup ({ msg })]
                        /\ PrintT(msg)
                        /\ PrintT(logs')
                   /\ pc' = [pc EXCEPT ![self] = "w0"]
@@ -119,5 +119,5 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 22 15:52:04 BST 2016 by george
+\* Last modified Sat Oct 22 15:57:34 BST 2016 by george
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
