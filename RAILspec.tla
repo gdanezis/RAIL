@@ -12,6 +12,7 @@ CONSTANT S, A, C
     clients = 1..C;
     
     logs = { "Line0", "Line1", "Line2", "Line3" };
+    logs2 = { "Line0", "Line1", "Line2", "Line3" };
 
     ServerState = [s \in servers |-> {}];
     ServerQueue = [s \in servers |-> {}];
@@ -28,7 +29,7 @@ CONSTANT S, A, C
 
     process(c \in clients){
         wstart:
-        print <<"start", c>>;
+        print <<"start">>;
         w0: 
         while (logs # {}){
         
@@ -36,13 +37,17 @@ CONSTANT S, A, C
             with (msg \in logs)
             {
                 logs := logs \ { msg };
-                print c;
+                with(s \in servers){
+                    send(ServerQueue[s], msg);
+                };
                 print msg;
                 print logs;
             };   
         };
-    
+                
+
     };
+    
     
     
 };
@@ -50,14 +55,12 @@ CONSTANT S, A, C
 *)
 
 
-============== RAIL ===================
+\* ================ BEGIN TRANSLATION ================ *\
+VARIABLES servers, aggregators, clients, logs, logs2, ServerState, 
+          ServerQueue, AggregatorState, AggregatorQueue, ClientTime, pc
 
-\* BEGIN TRANSLATION
-VARIABLES servers, aggregators, clients, logs, ServerState, ServerQueue, 
-          AggregatorState, AggregatorQueue, ClientTime, pc
-
-vars == << servers, aggregators, clients, logs, ServerState, ServerQueue, 
-           AggregatorState, AggregatorQueue, ClientTime, pc >>
+vars == << servers, aggregators, clients, logs, logs2, ServerState, 
+           ServerQueue, AggregatorState, AggregatorQueue, ClientTime, pc >>
 
 ProcSet == (clients)
 
@@ -66,6 +69,7 @@ Init == (* Global variables *)
         /\ aggregators = 1..A
         /\ clients = 1..C
         /\ logs = { "Line0", "Line1", "Line2", "Line3" }
+        /\ logs2 = { "Line0", "Line1", "Line2", "Line3" }
         /\ ServerState = [s \in servers |-> {}]
         /\ ServerQueue = [s \in servers |-> {}]
         /\ AggregatorState = [s \in aggregators |-> {}]
@@ -74,9 +78,9 @@ Init == (* Global variables *)
         /\ pc = [self \in ProcSet |-> "wstart"]
 
 wstart(self) == /\ pc[self] = "wstart"
-                /\ PrintT(<<"start", c>>)
+                /\ PrintT(<<"start">>)
                 /\ pc' = [pc EXCEPT ![self] = "w0"]
-                /\ UNCHANGED << servers, aggregators, clients, logs, 
+                /\ UNCHANGED << servers, aggregators, clients, logs, logs2, 
                                 ServerState, ServerQueue, AggregatorState, 
                                 AggregatorQueue, ClientTime >>
 
@@ -84,19 +88,20 @@ w0(self) == /\ pc[self] = "w0"
             /\ IF logs # {}
                   THEN /\ pc' = [pc EXCEPT ![self] = "sendline"]
                   ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-            /\ UNCHANGED << servers, aggregators, clients, logs, ServerState, 
-                            ServerQueue, AggregatorState, AggregatorQueue, 
-                            ClientTime >>
+            /\ UNCHANGED << servers, aggregators, clients, logs, logs2, 
+                            ServerState, ServerQueue, AggregatorState, 
+                            AggregatorQueue, ClientTime >>
 
 sendline(self) == /\ pc[self] = "sendline"
                   /\ \E msg \in logs:
                        /\ logs' = logs \ { msg }
-                       /\ PrintT(c)
+                       /\ \E s \in servers:
+                            ServerQueue' = [ServerQueue EXCEPT ![s] = (ServerQueue[s]) \cup msg]
                        /\ PrintT(msg)
                        /\ PrintT(logs')
                   /\ pc' = [pc EXCEPT ![self] = "w0"]
-                  /\ UNCHANGED << servers, aggregators, clients, ServerState, 
-                                  ServerQueue, AggregatorState, 
+                  /\ UNCHANGED << servers, aggregators, clients, logs2, 
+                                  ServerState, AggregatorState, 
                                   AggregatorQueue, ClientTime >>
 
 c(self) == wstart(self) \/ w0(self) \/ sendline(self)
@@ -114,5 +119,5 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 22 15:21:28 BST 2016 by george
+\* Last modified Sat Oct 22 15:52:04 BST 2016 by george
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
