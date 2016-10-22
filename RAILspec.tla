@@ -60,7 +60,7 @@ SOMELEFT(client_states) == \E xy \in (DOMAIN client_states) : Len(client_states[
     };
     
     process(s \in servers)
-    variable aa; {
+    variable aa = {}; {
         w0:
         while(ServerQueue[self] # {} \/ SOMELEFT(logs)) {
             await ServerQueue[self] # {};
@@ -92,7 +92,6 @@ SOMELEFT(client_states) == \E xy \in (DOMAIN client_states) : Len(client_states[
 
 
 \* ================ BEGIN TRANSLATION ================ *\
-CONSTANT defaultInitValue
 VARIABLES servers, aggregators, clients, subs, Quorums, logs, ServerState, 
           ServerQueue, sr, AggregatorState, AggregatorQueue, ClientTime, pc, 
           sentto, aa
@@ -119,7 +118,7 @@ Init == (* Global variables *)
         (* Process c *)
         /\ sentto = [self \in clients |-> {}]
         (* Process s *)
-        /\ aa = [self \in servers |-> defaultInitValue]
+        /\ aa = [self \in servers |-> {}]
         /\ pc = [self \in ProcSet |-> CASE self \in clients -> "wstart"
                                         [] self \in servers -> "w0"]
 
@@ -195,7 +194,7 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 22 22:28:07 BST 2016 by benl
+\* Last modified Sat Oct 22 22:29:40 BST 2016 by benl
 <<<<<<< HEAD
 \* Last modified Sat Oct 22 18:05:41 BST 2016 by george
 =======
