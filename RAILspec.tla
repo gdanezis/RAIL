@@ -16,7 +16,7 @@ CONSTANT S, A, C, K
     Quorums = {x \in subs : Cardinality(x) = K };
     
     \*logs = [c \in clients |-> {"Line0", "Line1", "Line2", "Line3" }];
-    logs = [c \in clients |-> <<"Line0", "Line1", "Line2">> ];
+    logs = [c \in clients |-> <<"Line0", "Line1">> ];
  
     ServerState = [s \in servers |-> {}];
     ServerQueue = [s \in servers |-> {}];
@@ -107,7 +107,7 @@ Init == (* Global variables *)
         /\ clients = A+S+1..A+S+C
         /\ subs = SUBSET servers
         /\ Quorums = {x \in subs : Cardinality(x) = K }
-        /\ logs = [c \in clients |-> <<"Line0", "Line1", "Line2">> ]
+        /\ logs = [c \in clients |-> <<"Line0", "Line1">> ]
         /\ ServerState = [s \in servers |-> {}]
         /\ ServerQueue = [s \in servers |-> {}]
         /\ sr = [s \in servers |-> 1]
@@ -192,15 +192,6 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
+\* Last modified Sat Oct 22 18:05:41 BST 2016 by george
 \* Last modified Sat Oct 22 18:00:44 BST 2016 by benl
-<<<<<<< Updated upstream
-\* Last modified Sat Oct 22 17:42:07 BST 2016 by george
-=======
-\* Last modified Sat Oct 22 17:54:56 BST 2016 by benl
-<<<<<<< HEAD
-\* Last modified Sat Oct 22 15:52:04 BST 2016 by george
-=======
-\* Last modified Sat Oct 22 16:12:21 BST 2016 by george
->>>>>>> refs/remotes/origin/master
->>>>>>> Stashed changes
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
