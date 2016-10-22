@@ -30,19 +30,28 @@ CONSTANT S, A, C
     process(c \in clients){
         wstart:
         while (logs[self] # {}){
-        
             sendline: 
             with (msg \in logs[self])
             {
                 logs[self] := logs[self] \ { msg };
                 with(s \in servers){
-                    send(ServerQueue[s], msg);
+                    send(ServerQueue[s], { msg });
                 };
             };   
-        };
-                
-
+        };                 
     };
+    
+    process(s \in servers){
+        
+        start: await ServerQueue[self] # {};
+        with (line \in ServerQueue[self]){
+            ServerQueue[self] := ServerQueue[self] \ { line };
+            ServerState[self] := ServerState[self] \cup { line };
+        }
+        
+    
+    
+    }
     
     
     
@@ -58,7 +67,7 @@ VARIABLES servers, aggregators, clients, logs, ServerState, ServerQueue,
 vars == << servers, aggregators, clients, logs, ServerState, ServerQueue, 
            AggregatorState, AggregatorQueue, ClientTime, pc >>
 
-ProcSet == (clients)
+ProcSet == (clients) \cup (servers)
 
 Init == (* Global variables *)
         /\ servers = 1..S
@@ -70,7 +79,8 @@ Init == (* Global variables *)
         /\ AggregatorState = [s \in aggregators |-> {}]
         /\ AggregatorQueue = [s \in servers |-> {}]
         /\ ClientTime = [s \in clients |-> 0]
-        /\ pc = [self \in ProcSet |-> "wstart"]
+        /\ pc = [self \in ProcSet |-> CASE self \in clients -> "wstart"
+                                        [] self \in servers -> "start"]
 
 wstart(self) == /\ pc[self] = "wstart"
                 /\ IF logs[self] # {}
@@ -84,14 +94,26 @@ sendline(self) == /\ pc[self] = "sendline"
                   /\ \E msg \in logs[self]:
                        /\ logs' = [logs EXCEPT ![self] = logs[self] \ { msg }]
                        /\ \E s \in servers:
-                            ServerQueue' = [ServerQueue EXCEPT ![s] = (ServerQueue[s]) \cup {msg}]
+                            ServerQueue' = [ServerQueue EXCEPT ![s] = (ServerQueue[s]) \cup {({ msg })}]
                   /\ pc' = [pc EXCEPT ![self] = "wstart"]
                   /\ UNCHANGED << servers, aggregators, clients, ServerState, 
                                   AggregatorState, AggregatorQueue, ClientTime >>
 
 c(self) == wstart(self) \/ sendline(self)
 
+start(self) == /\ pc[self] = "start"
+               /\ ServerQueue[self] # {}
+               /\ \E line \in ServerQueue[self]:
+                    /\ ServerQueue' = [ServerQueue EXCEPT ![self] = ServerQueue[self] \ { line }]
+                    /\ ServerState' = [ServerState EXCEPT ![self] = ServerState[self] \cup { line }]
+               /\ pc' = [pc EXCEPT ![self] = "Done"]
+               /\ UNCHANGED << servers, aggregators, clients, logs, 
+                               AggregatorState, AggregatorQueue, ClientTime >>
+
+s(self) == start(self)
+
 Next == (\E self \in clients: c(self))
+           \/ (\E self \in servers: s(self))
            \/ (* Disjunct to prevent deadlock on termination *)
               ((\A self \in ProcSet: pc[self] = "Done") /\ UNCHANGED vars)
 
@@ -104,6 +126,10 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 22 16:13:49 BST 2016 by benl
+\* Last modified Sat Oct 22 16:30:04 BST 2016 by benl
+<<<<<<< HEAD
 \* Last modified Sat Oct 22 15:52:04 BST 2016 by george
+=======
+\* Last modified Sat Oct 22 16:12:21 BST 2016 by george
+>>>>>>> refs/remotes/origin/master
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
