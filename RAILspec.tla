@@ -2,6 +2,9 @@
 EXTENDS Naturals, TLC, FiniteSets, Sequences
 CONSTANT S, A, C, K
 
+(* Check if there is any client log left to send *)
+SOMELEFT(client_states) == \E xy \in (DOMAIN client_states) : Len(client_states[xy]) > 0
+
 (*
 
 --fair algorithm RAIL {
@@ -57,9 +60,9 @@ CONSTANT S, A, C, K
     };
     
     process(s \in servers)
-    variable aa = {}; {
-        start:
-        while(sr[self] = 1) {
+    variable aa; {
+        w0:
+        while(ServerQueue[self] # {} \/ SOMELEFT(logs)) {
             await ServerQueue[self] # {};
             aa := aggregators;
             w1:
@@ -89,6 +92,7 @@ CONSTANT S, A, C, K
 
 
 \* ================ BEGIN TRANSLATION ================ *\
+CONSTANT defaultInitValue
 VARIABLES servers, aggregators, clients, subs, Quorums, logs, ServerState, 
           ServerQueue, sr, AggregatorState, AggregatorQueue, ClientTime, pc, 
           sentto, aa
@@ -115,9 +119,9 @@ Init == (* Global variables *)
         (* Process c *)
         /\ sentto = [self \in clients |-> {}]
         (* Process s *)
-        /\ aa = [self \in servers |-> {}]
+        /\ aa = [self \in servers |-> defaultInitValue]
         /\ pc = [self \in ProcSet |-> CASE self \in clients -> "wstart"
-                                        [] self \in servers -> "start"]
+                                        [] self \in servers -> "w0"]
 
 wstart(self) == /\ pc[self] = "wstart"
                 /\ IF Len(logs[self]) # 0
@@ -153,17 +157,16 @@ sendloop(self) == /\ pc[self] = "sendloop"
 
 c(self) == wstart(self) \/ winit(self) \/ sendloop(self)
 
-start(self) == /\ pc[self] = "start"
-               /\ IF sr[self] = 1
-                     THEN /\ ServerQueue[self] # {}
-                          /\ aa' = [aa EXCEPT ![self] = aggregators]
-                          /\ pc' = [pc EXCEPT ![self] = "w1"]
-                     ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-                          /\ aa' = aa
-               /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                               logs, ServerState, ServerQueue, sr, 
-                               AggregatorState, AggregatorQueue, ClientTime, 
-                               sentto >>
+w0(self) == /\ pc[self] = "w0"
+            /\ IF ServerQueue[self] # {} \/ SOMELEFT(logs)
+                  THEN /\ ServerQueue[self] # {}
+                       /\ aa' = [aa EXCEPT ![self] = aggregators]
+                       /\ pc' = [pc EXCEPT ![self] = "w1"]
+                  ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                       /\ aa' = aa
+            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, logs, 
+                            ServerState, ServerQueue, sr, AggregatorState, 
+                            AggregatorQueue, ClientTime, sentto >>
 
 w1(self) == /\ pc[self] = "w1"
             /\ \E line \in ServerQueue[self]:
@@ -172,11 +175,11 @@ w1(self) == /\ pc[self] = "w1"
                  /\ \E x \in aa[self]:
                       /\ aa' = [aa EXCEPT ![self] = aa[self] \ { x }]
                       /\ AggregatorQueue' = [AggregatorQueue EXCEPT ![x] = AggregatorQueue[x] \cup { line }]
-            /\ pc' = [pc EXCEPT ![self] = "start"]
+            /\ pc' = [pc EXCEPT ![self] = "w0"]
             /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, logs, 
                             sr, AggregatorState, ClientTime, sentto >>
 
-s(self) == start(self) \/ w1(self)
+s(self) == w0(self) \/ w1(self)
 
 Next == (\E self \in clients: c(self))
            \/ (\E self \in servers: s(self))
@@ -192,6 +195,11 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 22 22:15:48 BST 2016 by benl
+\* Last modified Sat Oct 22 22:28:07 BST 2016 by benl
+<<<<<<< HEAD
 \* Last modified Sat Oct 22 18:05:41 BST 2016 by george
+=======
+\* Last modified Sat Oct 22 18:28:31 BST 2016 by george
+\* Last modified Sat Oct 22 18:00:44 BST 2016 by benl
+>>>>>>> refs/remotes/origin/master
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
