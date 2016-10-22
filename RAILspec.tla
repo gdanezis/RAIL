@@ -11,9 +11,9 @@ CONSTANT S, A, C
     aggregators = 1..A;
     clients = 1..C;
     
-    logs = { "Line0", "Line1", "Line2", "Line3" };
-    logs2 = { "Line0", "Line1", "Line2", "Line3" };
-
+    \*logs = [c \in clients |-> {"Line0", "Line1", "Line2", "Line3" }];
+    logs = [c \in clients |-> {"Line0"}];
+ 
     ServerState = [s \in servers |-> {}];
     ServerQueue = [s \in servers |-> {}];
     
@@ -24,24 +24,20 @@ CONSTANT S, A, C
     
     
     macro send(chan, msgs){
-         chan := chan \cup msgs;
+         chan := chan \cup {msgs};
     }
 
     process(c \in clients){
         wstart:
-        print <<"start">>;
-        w0: 
-        while (logs # {}){
+        while (logs[self] # {}){
         
             sendline: 
-            with (msg \in logs)
+            with (msg \in logs[self])
             {
-                logs := logs \ { msg };
+                logs[self] := logs[self] \ { msg };
                 with(s \in servers){
                     send(ServerQueue[s], msg);
                 };
-                print msg;
-                print logs;
             };   
         };
                 
@@ -56,11 +52,11 @@ CONSTANT S, A, C
 
 
 \* ================ BEGIN TRANSLATION ================ *\
-VARIABLES servers, aggregators, clients, logs, logs2, ServerState, 
-          ServerQueue, AggregatorState, AggregatorQueue, ClientTime, pc
+VARIABLES servers, aggregators, clients, logs, ServerState, ServerQueue, 
+          AggregatorState, AggregatorQueue, ClientTime, pc
 
-vars == << servers, aggregators, clients, logs, logs2, ServerState, 
-           ServerQueue, AggregatorState, AggregatorQueue, ClientTime, pc >>
+vars == << servers, aggregators, clients, logs, ServerState, ServerQueue, 
+           AggregatorState, AggregatorQueue, ClientTime, pc >>
 
 ProcSet == (clients)
 
@@ -68,8 +64,7 @@ Init == (* Global variables *)
         /\ servers = 1..S
         /\ aggregators = 1..A
         /\ clients = 1..C
-        /\ logs = { "Line0", "Line1", "Line2", "Line3" }
-        /\ logs2 = { "Line0", "Line1", "Line2", "Line3" }
+        /\ logs = [c \in clients |-> {"Line0"}]
         /\ ServerState = [s \in servers |-> {}]
         /\ ServerQueue = [s \in servers |-> {}]
         /\ AggregatorState = [s \in aggregators |-> {}]
@@ -78,33 +73,23 @@ Init == (* Global variables *)
         /\ pc = [self \in ProcSet |-> "wstart"]
 
 wstart(self) == /\ pc[self] = "wstart"
-                /\ PrintT(<<"start">>)
-                /\ pc' = [pc EXCEPT ![self] = "w0"]
-                /\ UNCHANGED << servers, aggregators, clients, logs, logs2, 
+                /\ IF logs[self] # {}
+                      THEN /\ pc' = [pc EXCEPT ![self] = "sendline"]
+                      ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                /\ UNCHANGED << servers, aggregators, clients, logs, 
                                 ServerState, ServerQueue, AggregatorState, 
                                 AggregatorQueue, ClientTime >>
 
-w0(self) == /\ pc[self] = "w0"
-            /\ IF logs # {}
-                  THEN /\ pc' = [pc EXCEPT ![self] = "sendline"]
-                  ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-            /\ UNCHANGED << servers, aggregators, clients, logs, logs2, 
-                            ServerState, ServerQueue, AggregatorState, 
-                            AggregatorQueue, ClientTime >>
-
 sendline(self) == /\ pc[self] = "sendline"
-                  /\ \E msg \in logs:
-                       /\ logs' = logs \ { msg }
+                  /\ \E msg \in logs[self]:
+                       /\ logs' = [logs EXCEPT ![self] = logs[self] \ { msg }]
                        /\ \E s \in servers:
-                            ServerQueue' = [ServerQueue EXCEPT ![s] = (ServerQueue[s]) \cup msg]
-                       /\ PrintT(msg)
-                       /\ PrintT(logs')
-                  /\ pc' = [pc EXCEPT ![self] = "w0"]
-                  /\ UNCHANGED << servers, aggregators, clients, logs2, 
-                                  ServerState, AggregatorState, 
-                                  AggregatorQueue, ClientTime >>
+                            ServerQueue' = [ServerQueue EXCEPT ![s] = (ServerQueue[s]) \cup {msg}]
+                  /\ pc' = [pc EXCEPT ![self] = "wstart"]
+                  /\ UNCHANGED << servers, aggregators, clients, ServerState, 
+                                  AggregatorState, AggregatorQueue, ClientTime >>
 
-c(self) == wstart(self) \/ w0(self) \/ sendline(self)
+c(self) == wstart(self) \/ sendline(self)
 
 Next == (\E self \in clients: c(self))
            \/ (* Disjunct to prevent deadlock on termination *)
@@ -119,5 +104,6 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
+\* Last modified Sat Oct 22 16:13:49 BST 2016 by benl
 \* Last modified Sat Oct 22 15:52:04 BST 2016 by george
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
