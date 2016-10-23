@@ -4,6 +4,7 @@ CONSTANT S, A, C, K
 
 (* Check if there is any client log left to send *)
 SOMELEFT(client_states) == \E xy \in (DOMAIN client_states) : Len(client_states[xy]) > 0
+SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[xy] # {}
 
 (*
 
@@ -19,7 +20,7 @@ SOMELEFT(client_states) == \E xy \in (DOMAIN client_states) : Len(client_states[
     Quorums = {x \in subs : Cardinality(x) = K };
     
     \*logs = [c \in clients |-> {"Line0", "Line1", "Line2", "Line3" }];
-    logs = [c \in clients |-> <<"Line0">> ];
+    logs = [c \in clients |-> <<"Line0", "line1">> ];
  
     ServerState = [s \in servers |-> {}];
     ServerQueue = [s \in servers |-> {}];
@@ -77,15 +78,15 @@ SOMELEFT(client_states) == \E xy \in (DOMAIN client_states) : Len(client_states[
         }
     }
     
-    (*process(a \in aggregators) {
-        start:
-        while(1 = 1) {
+    process(a \in aggregators) {
+        astart:
+        while(AggregatorQueue[self] # {} \/ SOMELEFT(logs) \/ SOMELEFTSET(ServerQueue)) {
             with (m \in AggregatorQueue[self]) {
                 AggregatorQueue[self] := AggregatorQueue[self] \ { m };       
                 AggregatorState[self] := AggregatorState[self] \cup { m };
             }
         }
-    }*) 
+    }
 };
 
 *)
@@ -100,7 +101,7 @@ vars == << servers, aggregators, clients, subs, Quorums, logs, ServerState,
            ServerQueue, sr, AggregatorState, AggregatorQueue, ClientTime, pc, 
            sentto, aa >>
 
-ProcSet == (clients) \cup (servers)
+ProcSet == (clients) \cup (servers) \cup (aggregators)
 
 Init == (* Global variables *)
         /\ servers = 1..S
@@ -108,7 +109,7 @@ Init == (* Global variables *)
         /\ clients = A+S+1..A+S+C
         /\ subs = SUBSET servers
         /\ Quorums = {x \in subs : Cardinality(x) = K }
-        /\ logs = [c \in clients |-> <<"Line0">> ]
+        /\ logs = [c \in clients |-> <<"Line0", "line1">> ]
         /\ ServerState = [s \in servers |-> {}]
         /\ ServerQueue = [s \in servers |-> {}]
         /\ sr = [s \in servers |-> 1]
@@ -120,7 +121,8 @@ Init == (* Global variables *)
         (* Process s *)
         /\ aa = [self \in servers |-> {}]
         /\ pc = [self \in ProcSet |-> CASE self \in clients -> "wstart"
-                                        [] self \in servers -> "w0"]
+                                        [] self \in servers -> "w0"
+                                        [] self \in aggregators -> "astart"]
 
 wstart(self) == /\ pc[self] = "wstart"
                 /\ IF Len(logs[self]) # 0
@@ -180,8 +182,23 @@ w1(self) == /\ pc[self] = "w1"
 
 s(self) == w0(self) \/ w1(self)
 
+astart(self) == /\ pc[self] = "astart"
+                /\ IF AggregatorQueue[self] # {} \/ SOMELEFT(logs) \/ SOMELEFTSET(ServerQueue)
+                      THEN /\ \E m \in AggregatorQueue[self]:
+                                /\ AggregatorQueue' = [AggregatorQueue EXCEPT ![self] = AggregatorQueue[self] \ { m }]
+                                /\ AggregatorState' = [AggregatorState EXCEPT ![self] = AggregatorState[self] \cup { m }]
+                           /\ pc' = [pc EXCEPT ![self] = "astart"]
+                      ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                           /\ UNCHANGED << AggregatorState, AggregatorQueue >>
+                /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                                logs, ServerState, ServerQueue, sr, ClientTime, 
+                                sentto, aa >>
+
+a(self) == astart(self)
+
 Next == (\E self \in clients: c(self))
            \/ (\E self \in servers: s(self))
+           \/ (\E self \in aggregators: a(self))
            \/ (* Disjunct to prevent deadlock on termination *)
               ((\A self \in ProcSet: pc[self] = "Done") /\ UNCHANGED vars)
 
@@ -194,7 +211,7 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 22 22:29:40 BST 2016 by benl
+\* Last modified Sun Oct 23 13:55:52 BST 2016 by benl
 <<<<<<< HEAD
 \* Last modified Sat Oct 22 18:05:41 BST 2016 by george
 =======
