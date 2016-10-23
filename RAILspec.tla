@@ -21,7 +21,7 @@ ONESET(states) == \E x \in (DOMAIN states) : states[x] > 0
     \*AQuorums = { x \in subs : Cardinality(x) = S - K };
 
     \*logs = [ c \in clients |-> {"Line0", "Line1", "Line2", "Line3" } ];
-    logs = [ c \in clients |-> << "Line0", "Line1" >> ];
+\*    logs = [ c \in clients |-> << "Line0", "Line1" >> ];
 
     ServerState = [ s \in servers |-> {} ];
     ServerQueue = [ s \in servers |-> <<>> ];
@@ -261,11 +261,8 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sun Oct 23 22:10:09 BST 2016 by benl
-<<<<<<< HEAD
+\* Last modified Sun Oct 23 22:14:17 BST 2016 by benl
 \* Last modified Sat Oct 22 18:05:41 BST 2016 by george
-=======
 \* Last modified Sat Oct 22 18:28:31 BST 2016 by george
 \* Last modified Sat Oct 22 18:00:44 BST 2016 by benl
->>>>>>> refs/remotes/origin/master
 \* Created Sat Oct 22 14:25:13 BST 2016 by george
