@@ -25,7 +25,7 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
     logs = [c \in clients |-> <<"Line0", "line1">> ];
  
     ServerState = [s \in servers |-> {}];
-    ServerQueue = [s \in servers |-> {}];
+    ServerQueue = [s \in servers |-> <<>>];
     sr = [s \in servers |-> 1];
     
     AggregatorState = [s \in aggregators |-> {}];
@@ -35,7 +35,7 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
     
     
     macro send(chan, msgs){
-         chan := chan \cup msgs;
+         chan := chan \o msgs;
     }
     
     
@@ -53,7 +53,7 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
             sendloop:
             while(sentto # {}){
                 with(chan \in sentto){
-                    send( ServerQueue[chan] , { <<self, Head(logs[self])>> });
+                    send( ServerQueue[chan] , << <<self, Head(logs[self])>> >>);
                     sentto := sentto \ {chan}
                 };                
             };
@@ -65,8 +65,8 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
     process(s \in servers)
     variable aa = {}; {
         w0:
-        while(ServerQueue[self] # {} \/ SOMELEFT(logs)) {
-            await ServerQueue[self] # {};
+        while(ServerQueue[self] # <<>> \/ SOMELEFT(logs)) {
+            await ServerQueue[self] # <<>>;
             
             w2:
             with (targets \in AQuorums) {
@@ -74,24 +74,35 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
             };
         
             w1:
-            with (line \in ServerQueue[self]) {
-                ServerQueue[self] := ServerQueue[self] \ { line };
-                ServerState[self] := ServerState[self] \cup { line };
-                with (x \in aa) {
-                    aa := aa \ { x };
-                    AggregatorQueue[x] := AggregatorQueue[x] \cup { line };
-                }
+            while (ServerQueue[self] # <<>>) {
+                ServerState[self] := ServerState[self] \cup { Head(ServerQueue[self]) };
+                w3:
+                while (aa # {}) {
+                    with (x \in aa) {
+                        aa := aa \ { x };
+                        AggregatorQueue[x] := AggregatorQueue[x] \cup { Head(ServerQueue[self]) };
+                    }
+                };
+                ServerQueue[self] := Tail(ServerQueue[self]);
             }
         }
     }
     
-    process(a \in aggregators) {
+    process(a \in aggregators)
+    variable states = <<>>; {
         astart:
-        while(AggregatorQueue[self] # {} \/ SOMELEFT(logs) \/ SOMELEFTSET(ServerQueue)) {
+        while(AggregatorQueue[self] # {} \/ SOMELEFT(logs) \/ SOMELEFT(ServerQueue)) {
             with (m \in AggregatorQueue[self]) {
                 AggregatorQueue[self] := AggregatorQueue[self] \ { m };       
                 AggregatorState[self] := AggregatorState[self] \cup { m };
             }
+        };
+        (* presumably there's some way to run this check only once instead of in every process *)
+        a2:
+        (* wait for the others to finish *)
+        await ~SOMELEFTSET(AggregatorQueue);
+        with (n \in DOMAIN AggregatorState) {
+            assert AggregatorState[self] = AggregatorState[n];
         }
     }
 };
@@ -102,11 +113,11 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
 \* ================ BEGIN TRANSLATION ================ *\
 VARIABLES servers, aggregators, clients, subs, Quorums, asubs, AQuorums, logs, 
           ServerState, ServerQueue, sr, AggregatorState, AggregatorQueue, 
-          ClientTime, pc, sentto, aa
+          ClientTime, pc, sentto, aa, states
 
 vars == << servers, aggregators, clients, subs, Quorums, asubs, AQuorums, 
            logs, ServerState, ServerQueue, sr, AggregatorState, 
-           AggregatorQueue, ClientTime, pc, sentto, aa >>
+           AggregatorQueue, ClientTime, pc, sentto, aa, states >>
 
 ProcSet == (clients) \cup (servers) \cup (aggregators)
 
@@ -120,7 +131,7 @@ Init == (* Global variables *)
         /\ AQuorums = {x \in asubs : Cardinality(x) = S - K + 1}
         /\ logs = [c \in clients |-> <<"Line0", "line1">> ]
         /\ ServerState = [s \in servers |-> {}]
-        /\ ServerQueue = [s \in servers |-> {}]
+        /\ ServerQueue = [s \in servers |-> <<>>]
         /\ sr = [s \in servers |-> 1]
         /\ AggregatorState = [s \in aggregators |-> {}]
         /\ AggregatorQueue = [a \in aggregators |-> {}]
@@ -129,6 +140,8 @@ Init == (* Global variables *)
         /\ sentto = [self \in clients |-> {}]
         (* Process s *)
         /\ aa = [self \in servers |-> {}]
+        (* Process a *)
+        /\ states = [self \in aggregators |-> <<>>]
         /\ pc = [self \in ProcSet |-> CASE self \in clients -> "wstart"
                                         [] self \in servers -> "w0"
                                         [] self \in aggregators -> "astart"]
@@ -140,7 +153,8 @@ wstart(self) == /\ pc[self] = "wstart"
                 /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
                                 asubs, AQuorums, logs, ServerState, 
                                 ServerQueue, sr, AggregatorState, 
-                                AggregatorQueue, ClientTime, sentto, aa >>
+                                AggregatorQueue, ClientTime, sentto, aa, 
+                                states >>
 
 winit(self) == /\ pc[self] = "winit"
                /\ \E targets \in Quorums:
@@ -149,12 +163,12 @@ winit(self) == /\ pc[self] = "winit"
                /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
                                asubs, AQuorums, logs, ServerState, ServerQueue, 
                                sr, AggregatorState, AggregatorQueue, 
-                               ClientTime, aa >>
+                               ClientTime, aa, states >>
 
 sendloop(self) == /\ pc[self] = "sendloop"
                   /\ IF sentto[self] # {}
                         THEN /\ \E chan \in sentto[self]:
-                                  /\ ServerQueue' = [ServerQueue EXCEPT ![chan] = (ServerQueue[chan]) \cup ({ <<self, Head(logs[self])>> })]
+                                  /\ ServerQueue' = [ServerQueue EXCEPT ![chan] = (ServerQueue[chan]) \o (<< <<self, Head(logs[self])>> >>)]
                                   /\ sentto' = [sentto EXCEPT ![self] = sentto[self] \ {chan}]
                              /\ pc' = [pc EXCEPT ![self] = "sendloop"]
                              /\ logs' = logs
@@ -164,19 +178,19 @@ sendloop(self) == /\ pc[self] = "sendloop"
                   /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
                                   asubs, AQuorums, ServerState, sr, 
                                   AggregatorState, AggregatorQueue, ClientTime, 
-                                  aa >>
+                                  aa, states >>
 
 c(self) == wstart(self) \/ winit(self) \/ sendloop(self)
 
 w0(self) == /\ pc[self] = "w0"
-            /\ IF ServerQueue[self] # {} \/ SOMELEFT(logs)
-                  THEN /\ ServerQueue[self] # {}
+            /\ IF ServerQueue[self] # <<>> \/ SOMELEFT(logs)
+                  THEN /\ ServerQueue[self] # <<>>
                        /\ pc' = [pc EXCEPT ![self] = "w2"]
                   ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
             /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
                             asubs, AQuorums, logs, ServerState, ServerQueue, 
                             sr, AggregatorState, AggregatorQueue, ClientTime, 
-                            sentto, aa >>
+                            sentto, aa, states >>
 
 w2(self) == /\ pc[self] = "w2"
             /\ \E targets \in AQuorums:
@@ -185,35 +199,60 @@ w2(self) == /\ pc[self] = "w2"
             /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
                             asubs, AQuorums, logs, ServerState, ServerQueue, 
                             sr, AggregatorState, AggregatorQueue, ClientTime, 
-                            sentto >>
+                            sentto, states >>
 
 w1(self) == /\ pc[self] = "w1"
-            /\ \E line \in ServerQueue[self]:
-                 /\ ServerQueue' = [ServerQueue EXCEPT ![self] = ServerQueue[self] \ { line }]
-                 /\ ServerState' = [ServerState EXCEPT ![self] = ServerState[self] \cup { line }]
-                 /\ \E x \in aa[self]:
-                      /\ aa' = [aa EXCEPT ![self] = aa[self] \ { x }]
-                      /\ AggregatorQueue' = [AggregatorQueue EXCEPT ![x] = AggregatorQueue[x] \cup { line }]
-            /\ pc' = [pc EXCEPT ![self] = "w0"]
+            /\ IF ServerQueue[self] # <<>>
+                  THEN /\ ServerState' = [ServerState EXCEPT ![self] = ServerState[self] \cup { Head(ServerQueue[self]) }]
+                       /\ pc' = [pc EXCEPT ![self] = "w3"]
+                  ELSE /\ pc' = [pc EXCEPT ![self] = "w0"]
+                       /\ UNCHANGED ServerState
             /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                            asubs, AQuorums, logs, sr, AggregatorState, 
-                            ClientTime, sentto >>
+                            asubs, AQuorums, logs, ServerQueue, sr, 
+                            AggregatorState, AggregatorQueue, ClientTime, 
+                            sentto, aa, states >>
 
-s(self) == w0(self) \/ w2(self) \/ w1(self)
+w3(self) == /\ pc[self] = "w3"
+            /\ IF aa[self] # {}
+                  THEN /\ \E x \in aa[self]:
+                            /\ aa' = [aa EXCEPT ![self] = aa[self] \ { x }]
+                            /\ AggregatorQueue' = [AggregatorQueue EXCEPT ![x] = AggregatorQueue[x] \cup { Head(ServerQueue[self]) }]
+                       /\ pc' = [pc EXCEPT ![self] = "w3"]
+                       /\ UNCHANGED ServerQueue
+                  ELSE /\ ServerQueue' = [ServerQueue EXCEPT ![self] = Tail(ServerQueue[self])]
+                       /\ pc' = [pc EXCEPT ![self] = "w1"]
+                       /\ UNCHANGED << AggregatorQueue, aa >>
+            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                            asubs, AQuorums, logs, ServerState, sr, 
+                            AggregatorState, ClientTime, sentto, states >>
+
+s(self) == w0(self) \/ w2(self) \/ w1(self) \/ w3(self)
 
 astart(self) == /\ pc[self] = "astart"
-                /\ IF AggregatorQueue[self] # {} \/ SOMELEFT(logs) \/ SOMELEFTSET(ServerQueue)
+                /\ IF AggregatorQueue[self] # {} \/ SOMELEFT(logs) \/ SOMELEFT(ServerQueue)
                       THEN /\ \E m \in AggregatorQueue[self]:
                                 /\ AggregatorQueue' = [AggregatorQueue EXCEPT ![self] = AggregatorQueue[self] \ { m }]
                                 /\ AggregatorState' = [AggregatorState EXCEPT ![self] = AggregatorState[self] \cup { m }]
                            /\ pc' = [pc EXCEPT ![self] = "astart"]
-                      ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                      ELSE /\ pc' = [pc EXCEPT ![self] = "a2"]
                            /\ UNCHANGED << AggregatorState, AggregatorQueue >>
                 /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
                                 asubs, AQuorums, logs, ServerState, 
-                                ServerQueue, sr, ClientTime, sentto, aa >>
+                                ServerQueue, sr, ClientTime, sentto, aa, 
+                                states >>
 
-a(self) == astart(self)
+a2(self) == /\ pc[self] = "a2"
+            /\ ~SOMELEFTSET(AggregatorQueue)
+            /\ \E n \in DOMAIN AggregatorState:
+                 Assert(AggregatorState[self] = AggregatorState[n], 
+                        "Failure of assertion at line 105, column 13.")
+            /\ pc' = [pc EXCEPT ![self] = "Done"]
+            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                            asubs, AQuorums, logs, ServerState, ServerQueue, 
+                            sr, AggregatorState, AggregatorQueue, ClientTime, 
+                            sentto, aa, states >>
+
+a(self) == astart(self) \/ a2(self)
 
 Next == (\E self \in clients: c(self))
            \/ (\E self \in servers: s(self))
@@ -230,7 +269,7 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sun Oct 23 14:05:50 BST 2016 by benl
+\* Last modified Sun Oct 23 14:53:49 BST 2016 by benl
 <<<<<<< HEAD
 \* Last modified Sat Oct 22 18:05:41 BST 2016 by george
 =======
