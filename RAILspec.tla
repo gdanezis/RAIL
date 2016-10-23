@@ -16,8 +16,10 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
     clients = A+S+1..A+S+C;
     
     subs = SUBSET servers;
-    
     Quorums = {x \in subs : Cardinality(x) = K };
+    
+    asubs = SUBSET aggregators;
+    AQuorums = {x \in asubs : Cardinality(x) = S - K + 1};
     
     \*logs = [c \in clients |-> {"Line0", "Line1", "Line2", "Line3" }];
     logs = [c \in clients |-> <<"Line0", "line1">> ];
@@ -65,9 +67,14 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
         w0:
         while(ServerQueue[self] # {} \/ SOMELEFT(logs)) {
             await ServerQueue[self] # {};
-            aa := aggregators;
+            
+            w2:
+            with (targets \in AQuorums) {
+                aa := targets;
+            };
+        
             w1:
-            with (line \in ServerQueue[self]){
+            with (line \in ServerQueue[self]) {
                 ServerQueue[self] := ServerQueue[self] \ { line };
                 ServerState[self] := ServerState[self] \cup { line };
                 with (x \in aa) {
@@ -93,13 +100,13 @@ SOMELEFTSET(client_states) == \E xy \in (DOMAIN client_states) : client_states[x
 
 
 \* ================ BEGIN TRANSLATION ================ *\
-VARIABLES servers, aggregators, clients, subs, Quorums, logs, ServerState, 
-          ServerQueue, sr, AggregatorState, AggregatorQueue, ClientTime, pc, 
-          sentto, aa
+VARIABLES servers, aggregators, clients, subs, Quorums, asubs, AQuorums, logs, 
+          ServerState, ServerQueue, sr, AggregatorState, AggregatorQueue, 
+          ClientTime, pc, sentto, aa
 
-vars == << servers, aggregators, clients, subs, Quorums, logs, ServerState, 
-           ServerQueue, sr, AggregatorState, AggregatorQueue, ClientTime, pc, 
-           sentto, aa >>
+vars == << servers, aggregators, clients, subs, Quorums, asubs, AQuorums, 
+           logs, ServerState, ServerQueue, sr, AggregatorState, 
+           AggregatorQueue, ClientTime, pc, sentto, aa >>
 
 ProcSet == (clients) \cup (servers) \cup (aggregators)
 
@@ -109,6 +116,8 @@ Init == (* Global variables *)
         /\ clients = A+S+1..A+S+C
         /\ subs = SUBSET servers
         /\ Quorums = {x \in subs : Cardinality(x) = K }
+        /\ asubs = SUBSET aggregators
+        /\ AQuorums = {x \in asubs : Cardinality(x) = S - K + 1}
         /\ logs = [c \in clients |-> <<"Line0", "line1">> ]
         /\ ServerState = [s \in servers |-> {}]
         /\ ServerQueue = [s \in servers |-> {}]
@@ -129,18 +138,18 @@ wstart(self) == /\ pc[self] = "wstart"
                       THEN /\ pc' = [pc EXCEPT ![self] = "winit"]
                       ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
                 /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                                logs, ServerState, ServerQueue, sr, 
-                                AggregatorState, AggregatorQueue, ClientTime, 
-                                sentto, aa >>
+                                asubs, AQuorums, logs, ServerState, 
+                                ServerQueue, sr, AggregatorState, 
+                                AggregatorQueue, ClientTime, sentto, aa >>
 
 winit(self) == /\ pc[self] = "winit"
                /\ \E targets \in Quorums:
                     sentto' = [sentto EXCEPT ![self] = targets]
                /\ pc' = [pc EXCEPT ![self] = "sendloop"]
                /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                               logs, ServerState, ServerQueue, sr, 
-                               AggregatorState, AggregatorQueue, ClientTime, 
-                               aa >>
+                               asubs, AQuorums, logs, ServerState, ServerQueue, 
+                               sr, AggregatorState, AggregatorQueue, 
+                               ClientTime, aa >>
 
 sendloop(self) == /\ pc[self] = "sendloop"
                   /\ IF sentto[self] # {}
@@ -153,21 +162,30 @@ sendloop(self) == /\ pc[self] = "sendloop"
                              /\ pc' = [pc EXCEPT ![self] = "wstart"]
                              /\ UNCHANGED << ServerQueue, sentto >>
                   /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                                  ServerState, sr, AggregatorState, 
-                                  AggregatorQueue, ClientTime, aa >>
+                                  asubs, AQuorums, ServerState, sr, 
+                                  AggregatorState, AggregatorQueue, ClientTime, 
+                                  aa >>
 
 c(self) == wstart(self) \/ winit(self) \/ sendloop(self)
 
 w0(self) == /\ pc[self] = "w0"
             /\ IF ServerQueue[self] # {} \/ SOMELEFT(logs)
                   THEN /\ ServerQueue[self] # {}
-                       /\ aa' = [aa EXCEPT ![self] = aggregators]
-                       /\ pc' = [pc EXCEPT ![self] = "w1"]
+                       /\ pc' = [pc EXCEPT ![self] = "w2"]
                   ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-                       /\ aa' = aa
-            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, logs, 
-                            ServerState, ServerQueue, sr, AggregatorState, 
-                            AggregatorQueue, ClientTime, sentto >>
+            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                            asubs, AQuorums, logs, ServerState, ServerQueue, 
+                            sr, AggregatorState, AggregatorQueue, ClientTime, 
+                            sentto, aa >>
+
+w2(self) == /\ pc[self] = "w2"
+            /\ \E targets \in AQuorums:
+                 aa' = [aa EXCEPT ![self] = targets]
+            /\ pc' = [pc EXCEPT ![self] = "w1"]
+            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                            asubs, AQuorums, logs, ServerState, ServerQueue, 
+                            sr, AggregatorState, AggregatorQueue, ClientTime, 
+                            sentto >>
 
 w1(self) == /\ pc[self] = "w1"
             /\ \E line \in ServerQueue[self]:
@@ -177,10 +195,11 @@ w1(self) == /\ pc[self] = "w1"
                       /\ aa' = [aa EXCEPT ![self] = aa[self] \ { x }]
                       /\ AggregatorQueue' = [AggregatorQueue EXCEPT ![x] = AggregatorQueue[x] \cup { line }]
             /\ pc' = [pc EXCEPT ![self] = "w0"]
-            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, logs, 
-                            sr, AggregatorState, ClientTime, sentto >>
+            /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
+                            asubs, AQuorums, logs, sr, AggregatorState, 
+                            ClientTime, sentto >>
 
-s(self) == w0(self) \/ w1(self)
+s(self) == w0(self) \/ w2(self) \/ w1(self)
 
 astart(self) == /\ pc[self] = "astart"
                 /\ IF AggregatorQueue[self] # {} \/ SOMELEFT(logs) \/ SOMELEFTSET(ServerQueue)
@@ -191,8 +210,8 @@ astart(self) == /\ pc[self] = "astart"
                       ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
                            /\ UNCHANGED << AggregatorState, AggregatorQueue >>
                 /\ UNCHANGED << servers, aggregators, clients, subs, Quorums, 
-                                logs, ServerState, ServerQueue, sr, ClientTime, 
-                                sentto, aa >>
+                                asubs, AQuorums, logs, ServerState, 
+                                ServerQueue, sr, ClientTime, sentto, aa >>
 
 a(self) == astart(self)
 
@@ -211,7 +230,7 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 =============================================================================
 \* Modification History
-\* Last modified Sun Oct 23 13:55:52 BST 2016 by benl
+\* Last modified Sun Oct 23 14:05:50 BST 2016 by benl
 <<<<<<< HEAD
 \* Last modified Sat Oct 22 18:05:41 BST 2016 by george
 =======
